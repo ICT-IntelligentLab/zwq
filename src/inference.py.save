@@ -1,0 +1,99 @@
+import torch
+import os
+import random
+import sys
+
+# 确保能找到 src 模块
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.join(current_dir, "..")
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from src.dataset import EmotionSegmentDataset
+from src.model import DynamicEmotionModel
+
+# ================= 配置 =================
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+WAVLM_PATH = "pretrained/wavlm.pt"
+MODEL_PATH = "models/best_model.pth"
+# =======================================
+
+def denormalize(val):
+    """把 0-1 的预测值还原回 1-5"""
+    return val * 4.0 + 1.0
+
+def inference():
+    print("🚀 开始推理脚本...", flush=True)
+    
+    # 1. 加载验证集
+    val_csv = "data/val.csv"
+    if not os.path.exists(val_csv):
+        print(f"❌ 找不到验证集文件: {val_csv}")
+        return
+
+    print(f"正在加载验证集: {val_csv} ...")
+    try:
+        val_ds = EmotionSegmentDataset(val_csv, project_root=".")
+        print(f"验证集大小: {len(val_ds)}")
+    except Exception as e:
+        print(f"❌ 数据集加载失败: {e}")
+        return
+    
+    if len(val_ds) == 0:
+        print("❌ 验证集为空！")
+        return
+
+    # 2. 加载模型
+    if not os.path.exists(MODEL_PATH):
+        print(f"❌ 找不到模型文件: {MODEL_PATH}")
+        return
+
+    print(f"正在加载模型: {MODEL_PATH} ...")
+    try:
+        model = DynamicEmotionModel(wavlm_path=WAVLM_PATH).to(DEVICE)
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        model.eval()
+    except Exception as e:
+        print(f"❌ 模型加载失败: {e}")
+        return
+    
+    print("-" * 75)
+    print(f"{'真实值 (A/V/D)':<25} | {'预测值 (A/V/D)':<25} | {'误差':<10}")
+    print("-" * 75)
+
+    # 3. 随机抽取样本进行测试
+    sample_count = min(10, len(val_ds))
+    indices = random.sample(range(len(val_ds)), sample_count)
+    
+    total_error = 0
+    with torch.no_grad():
+        for idx in indices:
+            wav, label = val_ds[idx]
+            
+            if wav.sum() == 0:
+                print(f"{'⚠️ 坏数据 (跳过)':<25} | {'---':<25} | ---")
+                continue
+
+            wav = wav.unsqueeze(0).to(DEVICE)
+            
+            # 预测
+            pred = model(wav).cpu().squeeze(0)
+            
+            # 反归一化
+            true_score = denormalize(label)
+            pred_score = denormalize(pred)
+            
+            # 格式化输出
+            t_str = f"{true_score[0]:.1f}, {true_score[1]:.1f}, {true_score[2]:.1f}"
+            p_str = f"{pred_score[0]:.1f}, {pred_score[1]:.1f}, {pred_score[2]:.1f}"
+            
+            err = (true_score - pred_score).abs().mean().item()
+            total_error += err
+            
+            print(f"{t_str:<25} | {p_str:<25} | {err:.2f}")
+
+    print("-" * 75)
+    print(f"平均误差: {total_error/sample_count:.4f}")
+
+if __name__ == "__main__":
+    inferencme

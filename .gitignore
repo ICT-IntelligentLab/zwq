@@ -1,0 +1,18 @@
+# 忽略巨大的数据集文件夹
+raw_IEMOCAP/
+data/
+
+# 忽略预训练模型大文件
+pretrained/
+*.pt
+*.pth
+
+# 忽略 Python 编译缓存和日志
+__pycache__/
+*.pyc
+logs/
+.ipynb_checkpoints/
+
+# 忽略 IDE 配置文件
+.idea/
+.vscode/
